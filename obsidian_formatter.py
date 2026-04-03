@@ -31,9 +31,9 @@ class ObsidianFormatter:
         saved_images = []
         for img_name, img_data in visuals.items():
             img_path = os.path.join(visuals_dir, img_name)
-            # 模拟保存图片数据
+            # 保存图片二进制数据
             with open(img_path, "wb") as f:
-                f.write(img_data.encode("utf-8")) # 实际应该是写入二进制内容
+                f.write(img_data)
             saved_images.append(img_name)
             logger.info(f"Saved visual to {img_path}")
 

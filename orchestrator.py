@@ -3,9 +3,9 @@ import json
 from enum import Enum
 from typing import Dict, Any, Optional
 
-from .agents import ArchitectAgent, ResearcherAgent, WriterEditorAgent, VisualistAgent
-from .obsidian_formatter import ObsidianFormatter
-from .bridge import distribute_content
+from agents import ArchitectAgent, ResearcherAgent, WriterEditorAgent, VisualistAgent
+from obsidian_formatter import ObsidianFormatter
+from bridge import distribute_content
 
 logger = logging.getLogger(__name__)
 
