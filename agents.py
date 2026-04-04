@@ -136,18 +136,40 @@ class WriterEditorAgent:
         audience = requirements.get("audience", "通用读者")
         
         # Writer: Generate Content
-        writer_system = f"你是一个资深内容创作者。请根据提供的主题和研究资料，写一篇结构清晰的文章。调性要求：{tone}，目标受众：{audience}。请直接输出正文，不要包含标题。"
-        writer_prompt = f"主题: {topic}\n\n研究资料:\n{research_context}"
+        writer_system = (
+            f"你是一个精通数学和信号处理的资深技术内容创作者。"
+            f"请根据提供的主题和研究资料，写一篇结构清晰、逻辑严谨的深度技术文章。"
+            f"调性要求：{tone}，目标受众：{audience}。"
+            "要求："
+            "1. 必须有一条清晰的主线将全文串联起来，每个章节之间有自然的逻辑过渡；"
+            "2. 对数学公式进行本质性推导，不能只列公式而不解释；"
+            "3. 所有数学公式必须使用 LaTeX 格式（行内用 $...$，独立公式用 $$...$$）；"
+            "4. 每个核心概念必须配有直观解释，帮助读者建立直观图像；"
+            "5. 文章长度不少于 2500 字，要有足够的深度和细节；"
+            "6. 直接输出正文 Markdown，不要包含文章标题。"
+        )
+        writer_prompt = (
+            f"主题: {topic}\n\n"
+            f"用户的具体要求：\n{topic}\n\n"
+            f"研究资料（供参考，不要直接拂贴）：\n{research_context}"
+        )
         
         logger.info("Writer is generating content...")
-        draft_body = call_llm(writer_prompt, writer_system)
+        draft_body = call_llm(writer_prompt, writer_system, model="gpt-4.1-mini")
         
         # Editor: Review and refine
-        editor_system = "你是一个严格的文字编辑。请审阅草稿，优化语言表达，修正逻辑漏洞，并确保符合Markdown格式。直接输出优化后的全文。"
+        editor_system = (
+            "你是一个精通数学和信号处理的技术编辑。请审阅草稿，重点检查："
+            "1. 数学公式是否正确（LaTeX 语法、公式逻辑）；"
+            "2. 主线逻辑是否清晰，章节过渡是否自然；"
+            "3. 对偶性、卷积等核心概念的解释是否准确直观；"
+            "4. 语言表达是否严谨且可读。"
+            "直接输出修订后的全文 Markdown，不要包含文章标题。"
+        )
         editor_prompt = f"请优化以下草稿:\n\n{draft_body}"
         
         logger.info("Editor is reviewing content...")
-        final_body = call_llm(editor_prompt, editor_system)
+        final_body = call_llm(editor_prompt, editor_system, model="gpt-4.1-mini")
         
         # Script Writer: Generate podcast/video script
         script_system = "你是一个播客/视频脚本编剧。请根据文章内容，提取核心观点，写一段适合口播的短脚本（约200字）。"

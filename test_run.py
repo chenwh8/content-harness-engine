@@ -22,7 +22,18 @@ def main():
     engine = Orchestrator(config)
     
     # Simulate Feishu input
-    user_input = "帮我写一篇关于 AI Agent 框架的深度文章，发布到微信公众号和掘金，语言要专业但通俗易懂。"
+    user_input = (
+        "帮我写一篇关于『傅里叶分析进阶』的深度技术文章，发布到微信公众号。"
+        "读者对傅里叶分析有一定基础，但卡在进阶。"
+        "请用一条主线将以下内容串联起来："
+        "1. 周期函数的傅里叶级数展开；"
+        "2. 连续时间的傅里叶变换（CTFT），展示傅里叶变换的真正内涵；"
+        "3. 离散傅里叶变换（DFT）；"
+        "4. 周期/离散、连续/非周期的对偶性；"
+        "5. 时域相乘与频域卷积的对偶性；"
+        "6. 对底层数学公式的本质性推导。"
+        "要求逻辑清晰、不失细节，语言严谨但不失可读性，适当使用 LaTeX 公式。"
+    )
     logger.info(f"Simulating user input: {user_input}")
     
     result = engine.handle_input(user_input)

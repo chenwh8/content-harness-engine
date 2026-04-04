@@ -60,17 +60,30 @@ class WeChatPoster:
         else:
             raise Exception(f"Failed to upload content image {file_path}: {data}")
 
-    def _truncate_title(self, title: str, max_bytes: int = 35) -> str:
-        """Truncate title to fit within WeChat's actual byte limit.
-        Empirically tested: WeChat rejects titles >= 38 bytes.
-        We use 35 bytes as the safe ceiling (approx 17 Chinese chars).
+    def _display_width(self, s: str) -> int:
+        """Calculate display width: CJK/fullwidth chars = 2, others = 1."""
+        import unicodedata
+        w = 0
+        for c in s:
+            if unicodedata.east_asian_width(c) in ('W', 'F'):
+                w += 2
+            else:
+                w += 1
+        return w
+
+    def _truncate_title(self, title: str, max_bytes: int = 30) -> str:
+        """Truncate title to fit within WeChat's byte limit.
+        Empirically tested: WeChat enforces a strict 30-byte (UTF-8) limit
+        on draft article titles. CJK chars = 3 bytes each, ASCII = 1 byte.
+        The ellipsis character … (U+2026) is also 3 bytes in UTF-8.
+        So the safe strategy: truncate until body <= 27 bytes, then append ….
         """
         encoded = title.encode('utf-8')
         if len(encoded) <= max_bytes:
             return title
-        # Shrink char by char until we fit, then append ellipsis
+        # Shrink char by char, reserve 3 bytes for the … ellipsis
         t = title
-        while len(t.encode('utf-8')) > max_bytes - 3:  # reserve 3 bytes for …
+        while len(t.encode('utf-8')) > max_bytes - 3:
             t = t[:-1]
         return t + '…'
 
