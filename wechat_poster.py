@@ -145,7 +145,14 @@ class WeChatPoster:
                 "articles": [article]
             }
             
-            response = requests.post(url, json=payload)
+            # IMPORTANT: Use data= with ensure_ascii=False to prevent Unicode escape sequences
+            # (e.g., \u6df1 instead of 深) in the title and content sent to WeChat API.
+            # requests' json= parameter uses json.dumps with ensure_ascii=True by default.
+            response = requests.post(
+                url,
+                data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+                headers={'Content-Type': 'application/json; charset=utf-8'}
+            )
             response.encoding = 'utf-8'
             data = response.json()
             
