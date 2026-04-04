@@ -199,20 +199,34 @@ class WriterEditorAgent:
         logger.info("Generating script...")
         script = call_llm(script_prompt, script_system)
 
-        # ── Metadata ────────────────────────────────────────────────────
-        meta_system = "你是一个内容策划。请根据文章内容，生成一个吸引人的标题（不含引号，不超过20个汉字）。"
+            # ── Metadata ────────────────────────────────────────────
+        meta_system = """你是一个全媒体内容策划，擅长为微信公众号写爆款标题。
+请根据文章内容，生成一个吸引人的公众号标题。
+
+【标题要求】
+1. 长度：15-25个汉字（包含标点符号），不要太短也不要太长
+2. 风格：参考以下爆款公式之一，根据文章内容选择最合适的：
+   - 悬念式：“为什么XXX？看完这篇文章你就明白了”
+   - 利益式：“彻底弄懂XXX，只需这一篇”
+   - 数字式：“一文搞懂XXX的N个核心原理”
+   - 对比式：“从入门到精通：XXX的完整路径”
+   - 知识点式：“XXX的本质，就是这么简单”
+3. 不含引号、不含“深度解析”这种老套词
+4. 内容准确，能让目标读者一眼看到就想点开
+
+以JSON格式返回：{{"title": "..."}}"""
         meta_prompt = (
-            f"文章内容:\n{final_body}\n\n"
-            f"请以JSON格式返回：\n{{\"title\": \"...\"}}"
+            f"文章主题：{topic}\n\n"
+            f"文章内容摘要（前500字）：\n{final_body[:500]}"
         )
 
         logger.info("Generating metadata...")
         meta_response = call_llm(meta_prompt, meta_system, response_format="json_object")
         try:
             meta_data = json.loads(meta_response)
-            title = meta_data.get("title", f"深度解析：{topic[:20]}")
+            title = meta_data.get("title", f"彻底弄懂{topic[:10]}，看这一篇就够了")
         except Exception:
-            title = f"深度解析：{topic[:20]}"
+             title = f"彻底弄懂{topic[:10]}，看这一篇就够了"
 
         # 提取所有占位符（[IMAGE: ...] 和 [TABLE_IMAGE: ...]）
         image_placeholders = re.findall(r'\[(?:TABLE_)?IMAGE:\s*(.*?)\]', final_body, re.DOTALL)
