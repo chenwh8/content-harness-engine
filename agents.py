@@ -1,20 +1,20 @@
 import logging
 import json
 import os
+import re
 import requests
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------
 # 辅助函数：调用 OpenAI 兼容接口 (用于 Architect, Writer, Editor)
 # ----------------------------------------------------------------------
-def call_llm(prompt: str, system_prompt: str = "You are a helpful assistant.", model: str = "gpt-4.1-mini", response_format: str = "text") -> str:
+def call_llm(prompt: str, system_prompt: str = "You are a helpful assistant.",
+             model: str = "gpt-4.1-mini", response_format: str = "text") -> str:
     try:
         from openai import OpenAI
-        # OpenAI client uses OPENAI_API_KEY and OPENAI_BASE_URL from environment automatically
         client = OpenAI()
-        
         kwargs = {
             "model": model,
             "messages": [
@@ -24,12 +24,12 @@ def call_llm(prompt: str, system_prompt: str = "You are a helpful assistant.", m
         }
         if response_format == "json_object":
             kwargs["response_format"] = {"type": "json_object"}
-            
         response = client.chat.completions.create(**kwargs)
         return response.choices[0].message.content
     except Exception as e:
         logger.error(f"LLM API call failed: {e}")
         raise
+
 
 # ----------------------------------------------------------------------
 # Architect Agent
@@ -48,7 +48,7 @@ class ArchitectAgent:
 如果用户提供了足够的信息（有明确的主题），请将其结构化为 JSON 格式返回。
 
 JSON 格式要求包含以下字段：
-- topic: 创作主题（必须）
+- topic: 创作主题（必须，尽量完整保留用户的原始描述）
 - audience: 目标受众（如果用户没说，默认为"通用读者"）
 - tone: 内容调性（如果用户没说，默认为"专业且易懂"）
 - platforms: 发布平台列表（如果用户没说，默认为["wechat"]）
@@ -57,37 +57,36 @@ JSON 格式要求包含以下字段：
 - message: 如果 needs_more_info 为 true，这里填写追问用户的话；否则为空字符串。"""
 
         prompt = f"用户输入: {user_input}"
-        
+
         try:
             response_text = call_llm(prompt, system_prompt, response_format="json_object")
             result = json.loads(response_text)
-            
+
             if result.get("needs_more_info"):
                 return {"needs_more_info": True, "message": result.get("message", "请提供更多信息。")}
-            
-            # 整理 requirements
+
             requirements = {
-                "topic": result.get("topic", user_input[:50]),
+                "topic": result.get("topic", user_input[:200]),
                 "audience": result.get("audience", "通用读者"),
                 "tone": result.get("tone", "专业且易懂"),
                 "platforms": result.get("platforms", ["wechat"]),
                 "status": result.get("status", "draft")
             }
             return {"needs_more_info": False, "requirements": requirements}
-            
+
         except Exception as e:
             logger.error(f"Architect parsing failed: {e}")
-            # Fallback
             return {
                 "needs_more_info": False,
                 "requirements": {
-                    "topic": user_input[:50],
+                    "topic": user_input[:200],
                     "audience": "通用读者",
                     "tone": "专业且易懂",
                     "platforms": ["wechat"],
                     "status": "draft"
                 }
             }
+
 
 # ----------------------------------------------------------------------
 # Researcher Agent
@@ -100,33 +99,39 @@ class ResearcherAgent:
 
     def process(self, requirements: Dict[str, Any]) -> str:
         topic = requirements.get("topic", "")
-        logger.info(f"Researching topic: {topic}")
-        
+        logger.info(f"Researching topic: {topic[:80]}")
+
         if not self.api_key:
             logger.warning("TAVILY_API_KEY not found, skipping research.")
             return f"关于 {topic} 的基础信息（由于未配置搜索 API，此处为占位符）。"
-            
+
         try:
             from tavily import TavilyClient
             tavily = TavilyClient(api_key=self.api_key)
             response = tavily.search(query=topic, search_depth="advanced", max_results=3)
-            
+
             context = f"关于 '{topic}' 的研究资料：\n\n"
             for result in response.get("results", []):
                 context += f"标题: {result.get('title')}\n"
                 context += f"内容: {result.get('content')}\n"
                 context += f"来源: {result.get('url')}\n\n"
-                
+
             return context
         except Exception as e:
             logger.error(f"Tavily search failed: {e}")
             return f"搜索失败，仅提供关于 {topic} 的基础框架思考。"
 
+
 # ----------------------------------------------------------------------
 # Writer & Editor Agent
 # ----------------------------------------------------------------------
 class WriterEditorAgent:
-    """写手与审计：采用 Harness“模块化”理念生成正文。Editor 需对逻辑进行交叉校验。"""
+    """写手与审计：采用 Harness"模块化"理念生成正文。
+    
+    Writer 生成带 [IMAGE: description] 占位符的正文，
+    占位符标记每个章节需要的配图位置和内容描述。
+    Editor 对逻辑进行交叉校验并优化。
+    """
     def __init__(self, config: Dict[str, Any]):
         self.config = config
 
@@ -134,125 +139,174 @@ class WriterEditorAgent:
         topic = requirements.get("topic", "未命名主题")
         tone = requirements.get("tone", "专业且易懂")
         audience = requirements.get("audience", "通用读者")
-        
-        # Writer: Generate Content
-        writer_system = (
-            f"你是一个精通数学和信号处理的资深技术内容创作者。"
-            f"请根据提供的主题和研究资料，写一篇结构清晰、逻辑严谨的深度技术文章。"
-            f"调性要求：{tone}，目标受众：{audience}。"
-            "要求："
-            "1. 必须有一条清晰的主线将全文串联起来，每个章节之间有自然的逻辑过渡；"
-            "2. 对数学公式进行本质性推导，不能只列公式而不解释；"
-            "3. 所有数学公式必须使用 LaTeX 格式（行内用 $...$，独立公式用 $$...$$）；"
-            "4. 每个核心概念必须配有直观解释，帮助读者建立直观图像；"
-            "5. 文章长度不少于 2500 字，要有足够的深度和细节；"
-            "6. 直接输出正文 Markdown，不要包含文章标题。"
-        )
+
+        # ── Writer ──────────────────────────────────────────────────────
+        writer_system = f"""你是一个精通数学和信号处理的资深技术内容创作者。
+请根据提供的主题和研究资料，写一篇结构清晰、逻辑严谨的深度技术文章。
+调性要求：{tone}，目标受众：{audience}。
+
+【核心写作要求】
+1. 必须有一条清晰的主线将全文串联起来，每个章节之间有自然的逻辑过渡；
+2. 对数学公式进行本质性推导，不能只列公式而不解释其物理/几何意义；
+3. 所有数学公式必须使用标准 LaTeX 格式（行内用 $...$，独立公式用 $$...$$）；
+4. 每个核心概念必须配有直观解释，帮助读者建立直观图像；
+5. 文章长度不少于 2500 字，要有足够的深度和细节；
+6. 直接输出正文 Markdown，不要包含文章标题（标题会单独生成）。
+
+【配图占位符规范】
+在文章中，每当某个概念或结论特别适合用图来辅助理解时，在该段落之后插入一个配图占位符：
+[IMAGE: <用英文描述这张图应该展示什么内容，要具体，例如：A diagram showing the duality between periodic time-domain signal and discrete frequency spectrum, with arrows indicating the Fourier series coefficients>]
+
+配图数量：全文 2-4 张，放在最需要视觉辅助的位置（不要堆在开头或结尾）。
+每张图的描述要具体、可视化，能直接作为 AI 生图的 Prompt。"""
+
         writer_prompt = (
             f"主题: {topic}\n\n"
             f"用户的具体要求：\n{topic}\n\n"
-            f"研究资料（供参考，不要直接拂贴）：\n{research_context}"
+            f"研究资料（供参考，不要直接复制）：\n{research_context}"
         )
-        
+
         logger.info("Writer is generating content...")
         draft_body = call_llm(writer_prompt, writer_system, model="gpt-4.1-mini")
-        
-        # Editor: Review and refine
-        editor_system = (
-            "你是一个精通数学和信号处理的技术编辑。请审阅草稿，重点检查："
-            "1. 数学公式是否正确（LaTeX 语法、公式逻辑）；"
-            "2. 主线逻辑是否清晰，章节过渡是否自然；"
-            "3. 对偶性、卷积等核心概念的解释是否准确直观；"
-            "4. 语言表达是否严谨且可读。"
-            "直接输出修订后的全文 Markdown，不要包含文章标题。"
-        )
+
+        # ── Editor ──────────────────────────────────────────────────────
+        editor_system = """你是一个精通数学和信号处理的技术编辑。请审阅草稿，重点检查：
+1. 数学公式是否正确（LaTeX 语法、公式逻辑）；
+2. 主线逻辑是否清晰，章节过渡是否自然；
+3. 对偶性、卷积等核心概念的解释是否准确直观；
+4. 语言表达是否严谨且可读；
+5. 配图占位符 [IMAGE: ...] 的位置是否合理（不要删除或移动它们，只能微调描述）。
+
+直接输出修订后的全文 Markdown，保留所有 [IMAGE: ...] 占位符，不要包含文章标题。"""
+
         editor_prompt = f"请优化以下草稿:\n\n{draft_body}"
-        
+
         logger.info("Editor is reviewing content...")
         final_body = call_llm(editor_prompt, editor_system, model="gpt-4.1-mini")
-        
-        # Script Writer: Generate podcast/video script
+
+        # ── Script ──────────────────────────────────────────────────────
         script_system = "你是一个播客/视频脚本编剧。请根据文章内容，提取核心观点，写一段适合口播的短脚本（约200字）。"
         script_prompt = f"文章内容:\n{final_body}"
-        
+
         logger.info("Generating script...")
         script = call_llm(script_prompt, script_system)
-        
-        # Generate Title and Image Prompts
-        meta_system = "你是一个内容策划。请根据文章内容，生成一个吸引人的标题（不含引号），以及2个用于生成配图的英文Prompt。"
-        meta_prompt = f"文章内容:\n{final_body}\n\n请以JSON格式返回：\n{{\"title\": \"...\", \"image_prompts\": [\"prompt1\", \"prompt2\"]}}"
-        
+
+        # ── Metadata ────────────────────────────────────────────────────
+        meta_system = "你是一个内容策划。请根据文章内容，生成一个吸引人的标题（不含引号，不超过20个汉字）。"
+        meta_prompt = (
+            f"文章内容:\n{final_body}\n\n"
+            f"请以JSON格式返回：\n{{\"title\": \"...\"}}"
+        )
+
         logger.info("Generating metadata...")
         meta_response = call_llm(meta_prompt, meta_system, response_format="json_object")
         try:
             meta_data = json.loads(meta_response)
-            title = meta_data.get("title", f"深度解析：{topic}")
-            image_prompts = meta_data.get("image_prompts", [f"A professional illustration about {topic}"])
-        except:
-            title = f"深度解析：{topic}"
-            image_prompts = [f"A conceptual illustration of {topic}, high quality, digital art"]
-        
+            title = meta_data.get("title", f"深度解析：{topic[:20]}")
+        except Exception:
+            title = f"深度解析：{topic[:20]}"
+
+        # 提取 [IMAGE: ...] 占位符中的 prompts
+        image_placeholders = re.findall(r'\[IMAGE:\s*(.*?)\]', final_body, re.DOTALL)
+        image_prompts = [p.strip() for p in image_placeholders]
+        logger.info(f"Found {len(image_prompts)} image placeholders in article")
+
         return {
             "title": title,
             "body": final_body,
             "script": script,
-            "image_prompts": image_prompts
+            "image_prompts": image_prompts,
         }
+
 
 # ----------------------------------------------------------------------
 # Visualist Agent
 # ----------------------------------------------------------------------
 class VisualistAgent:
-    """配图师：调用 Gemini API (支持生图) 为文章生成配图，并将图片下载到本地。"""
+    """配图师：根据正文中的 [IMAGE: ...] 占位符，调用 Gemini Imagen API 生成配图，
+    并将占位符替换为本地图片路径引用。"""
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.api_key = config.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        self.imagen_model = "imagen-4.0-generate-001"
 
-    def process(self, article_data: Dict[str, Any]) -> Dict[str, bytes]:
-        prompts = article_data.get("image_prompts", [])
-        visuals = {}
-        
+    def _generate_image(self, prompt: str) -> Optional[bytes]:
+        """调用 Gemini Imagen API 生成单张图片，返回 PNG bytes 或 None。"""
         if not self.api_key:
             logger.warning("GEMINI_API_KEY not found, skipping image generation.")
-            # Return a tiny 1x1 transparent PNG as mock
-            mock_png = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0bIDAT\x08\xd7c`\x00\x02\x00\x00\x05\x00\x01^\xf3*:\x00\x00\x00\x00IEND\xaeB`\x82'
-            for i in range(len(prompts)):
-                visuals[f"cover_{i}.png"] = mock_png
-            return visuals
-            
-        # Call Gemini API for image generation
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={self.api_key}"
-        headers = {"Content-Type": "application/json"}
-        
-        # Use imagen-4.0-generate-001 (Nano-Banana-Pro is also available as nano-banana-pro-preview)
-        # Prefer imagen-4.0 as it's the stable production model
-        imagen_model = "imagen-4.0-generate-001"
-        
-        for i, prompt in enumerate(prompts):
-            logger.info(f"Generating image [{i+1}/{len(prompts)}] with {imagen_model}: {prompt[:60]}...")
-            
-            imagen_url = f"https://generativelanguage.googleapis.com/v1beta/models/{imagen_model}:predict?key={self.api_key}"
-            payload = {
-                "instances": [{"prompt": prompt}],
-                "parameters": {"sampleCount": 1}
-            }
-            
-            try:
-                response = requests.post(imagen_url, headers=headers, json=payload, timeout=90)
-                if response.status_code == 200:
-                    import base64
-                    data = response.json()
-                    b64_img = data["predictions"][0]["bytesBase64Encoded"]
-                    visuals[f"cover_{i}.png"] = base64.b64decode(b64_img)
-                    logger.info(f"Successfully generated image cover_{i}.png")
-                else:
-                    logger.error(f"Image generation failed ({response.status_code}): {response.text[:200]}")
-                    # Fallback to 1x1 transparent PNG placeholder
-                    mock_png = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0bIDAT\x08\xd7c`\x00\x02\x00\x00\x05\x00\x01^\xf3*:\x00\x00\x00\x00IEND\xaeB`\x82'
-                    visuals[f"cover_{i}.png"] = mock_png
-            except Exception as e:
-                logger.error(f"Exception during image generation: {e}")
-                mock_png = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0bIDAT\x08\xd7c`\x00\x02\x00\x00\x05\x00\x01^\xf3*:\x00\x00\x00\x00IEND\xaeB`\x82'
-                visuals[f"cover_{i}.png"] = mock_png
-                
-        return visuals
+            return None
+
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{self.imagen_model}:predict?key={self.api_key}"
+        )
+        payload = {
+            "instances": [{"prompt": prompt}],
+            "parameters": {"sampleCount": 1}
+        }
+        try:
+            response = requests.post(url, json=payload, timeout=90)
+            if response.status_code == 200:
+                import base64
+                data = response.json()
+                b64_img = data["predictions"][0]["bytesBase64Encoded"]
+                return base64.b64decode(b64_img)
+            else:
+                logger.error(f"Image generation failed ({response.status_code}): {response.text[:200]}")
+                return None
+        except Exception as e:
+            logger.error(f"Exception during image generation: {e}")
+            return None
+
+    def process(self, article_data: Dict[str, Any], visuals_dir: str) -> Dict[str, Any]:
+        """
+        处理文章中的 [IMAGE: ...] 占位符：
+        1. 为每个占位符生成图片并保存到 visuals_dir
+        2. 将正文中的占位符替换为 Markdown 图片引用
+        3. 返回更新后的 article_data（body 已替换，visuals 字典包含文件名→bytes）
+
+        Args:
+            article_data: WriterEditorAgent 的输出
+            visuals_dir: 图片保存目录（绝对路径）
+        """
+        body: str = article_data.get("body", "")
+        image_prompts: List[str] = article_data.get("image_prompts", [])
+        visuals: Dict[str, bytes] = {}
+
+        os.makedirs(visuals_dir, exist_ok=True)
+
+        # 逐一替换 [IMAGE: ...] 占位符
+        placeholder_idx = 0
+
+        def replace_placeholder(match: re.Match) -> str:
+            nonlocal placeholder_idx
+            prompt = match.group(1).strip()
+            idx = placeholder_idx
+            placeholder_idx += 1
+
+            filename = f"visual_{idx}.png"
+            filepath = os.path.join(visuals_dir, filename)
+            rel_path = f"./_visuals/{filename}"
+
+            logger.info(f"Generating image [{idx+1}/{len(image_prompts)}]: {prompt[:60]}...")
+            img_bytes = self._generate_image(prompt)
+
+            if img_bytes:
+                with open(filepath, "wb") as f:
+                    f.write(img_bytes)
+                visuals[filename] = img_bytes
+                logger.info(f"Saved image: {filename} ({len(img_bytes)} bytes)")
+                # 生成带说明的图片引用（从 prompt 中提取简短说明）
+                alt_text = prompt[:40] + "..." if len(prompt) > 40 else prompt
+                return f"\n\n![{alt_text}]({rel_path})\n\n"
+            else:
+                # 生成失败：移除占位符，不留空洞
+                logger.warning(f"Image generation failed for placeholder {idx}, removing placeholder.")
+                return ""
+
+        updated_body = re.sub(r'\[IMAGE:\s*(.*?)\]', replace_placeholder, body, flags=re.DOTALL)
+
+        article_data["body"] = updated_body
+        article_data["visuals"] = visuals
+        return article_data

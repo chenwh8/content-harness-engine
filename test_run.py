@@ -15,7 +15,9 @@ def main():
     config = {
         "OUTPUT_DIR": os.environ.get("OUTPUT_DIR", "./output"),
         "TAVILY_API_KEY": os.environ.get("TAVILY_API_KEY"),
-        "GEMINI_API_KEY": os.environ.get("GEMINI_API_KEY")
+        "GEMINI_API_KEY": os.environ.get("GEMINI_API_KEY"),
+        "WECHAT_APP_ID": os.environ.get("WECHAT_APP_ID"),
+        "WECHAT_APP_SECRET": os.environ.get("WECHAT_APP_SECRET"),
     }
     
     logger.info("Initializing Orchestrator...")
