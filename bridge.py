@@ -62,13 +62,25 @@ def _md_to_wechat_html(body: str, project_dir: str, poster: WeChatPoster) -> str
     body = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', upload_and_replace, body)
 
     # ── Step 2: Markdown → 微信兼容 HTML ────────────────────────────────
+    # ── Step 2a: 预处理 Markdown 表格 → HTML table（在逐行处理前整体替换）──
+    body = _convert_md_tables(body)
+
     lines = body.split('\n')
     html_parts = []
     in_code_block = False
     code_buffer = []
     code_lang = ""
+    in_raw_html = False  # 用于跳过已转换的 HTML 块
 
     for line in lines:
+        # 已转换的 HTML 表格直接透传
+        if line.startswith('<table') or in_raw_html:
+            in_raw_html = True
+            html_parts.append(line)
+            if '</table>' in line:
+                in_raw_html = False
+            continue
+
         # 代码块
         if line.startswith('```'):
             if not in_code_block:
@@ -173,6 +185,74 @@ def _md_to_wechat_html(body: str, project_dir: str, poster: WeChatPoster) -> str
         f'</section>'
     )
     return html
+
+
+def _convert_md_tables(body: str) -> str:
+    """
+    将 Markdown 管道表格转换为微信兼容的内联样式 HTML table。
+    支持标准的 | col1 | col2 | 格式，包含分隔行。
+    """
+    # 表格样式定义（微信只支持内联 style）
+    TABLE_STYLE = (
+        'border-collapse:collapse;width:100%;margin:16px 0;'
+        'font-size:14px;line-height:1.6;'
+    )
+    TH_STYLE = (
+        'background:#4a90e2;color:#fff;font-weight:600;'
+        'padding:10px 14px;border:1px solid #3a7bd5;'
+        'text-align:left;white-space:nowrap;'
+    )
+    TD_STYLE_ODD = (
+        'padding:9px 14px;border:1px solid #dde4ee;'
+        'color:#333;background:#f8f9fc;vertical-align:top;'
+    )
+    TD_STYLE_EVEN = (
+        'padding:9px 14px;border:1px solid #dde4ee;'
+        'color:#333;background:#ffffff;vertical-align:top;'
+    )
+
+    def replace_table(m: re.Match) -> str:
+        raw = m.group(0)
+        rows = [r.strip() for r in raw.strip().split('\n') if r.strip()]
+        if len(rows) < 2:
+            return raw
+
+        # 解析单元格（去掉首尾的 | ）
+        def parse_cells(row: str):
+            row = row.strip().strip('|')
+            return [c.strip() for c in row.split('|')]
+
+        header_cells = parse_cells(rows[0])
+        # rows[1] 是分隔行（--- 行），跳过
+        data_rows = rows[2:]
+
+        # 构建表头
+        th_html = ''.join(
+            f'<th style="{TH_STYLE}">{_inline_md(c)}</th>'
+            for c in header_cells
+        )
+        thead = f'<thead><tr>{th_html}</tr></thead>'
+
+        # 构建表体（斑马纹）
+        tbody_rows = []
+        for i, row in enumerate(data_rows):
+            cells = parse_cells(row)
+            td_style = TD_STYLE_ODD if i % 2 == 0 else TD_STYLE_EVEN
+            td_html = ''.join(
+                f'<td style="{td_style}">{_inline_md(c)}</td>'
+                for c in cells
+            )
+            tbody_rows.append(f'<tr>{td_html}</tr>')
+        tbody = f'<tbody>{chr(10).join(tbody_rows)}</tbody>'
+
+        return f'<table style="{TABLE_STYLE}">{thead}{tbody}</table>'
+
+    # 匹配连续的 Markdown 表格行（包含表头、分隔行、数据行）
+    table_pattern = re.compile(
+        r'(?:^[ \t]*\|.+\|[ \t]*\n){2,}',
+        re.MULTILINE
+    )
+    return table_pattern.sub(replace_table, body)
 
 
 def _escape_html(text: str) -> str:

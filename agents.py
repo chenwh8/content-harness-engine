@@ -231,8 +231,13 @@ class VisualistAgent:
         self.api_key = config.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
         self.imagen_model = "imagen-4.0-generate-001"
 
-    def _generate_image(self, prompt: str) -> Optional[bytes]:
-        """调用 Gemini Imagen API 生成单张图片，返回 PNG bytes 或 None。"""
+    def _generate_image(self, prompt: str, aspect_ratio: str = "1:1") -> Optional[bytes]:
+        """调用 Gemini Imagen API 生成单张图片，返回 PNG bytes 或 None。
+        
+        Args:
+            prompt: 图片描述
+            aspect_ratio: 宽高比，如 "1:1", "9:4", "16:9", "4:3"
+        """
         if not self.api_key:
             logger.warning("GEMINI_API_KEY not found, skipping image generation.")
             return None
@@ -243,7 +248,10 @@ class VisualistAgent:
         )
         payload = {
             "instances": [{"prompt": prompt}],
-            "parameters": {"sampleCount": 1}
+            "parameters": {
+                "sampleCount": 1,
+                "aspectRatio": aspect_ratio,
+            }
         }
         try:
             response = requests.post(url, json=payload, timeout=90)
@@ -259,12 +267,51 @@ class VisualistAgent:
             logger.error(f"Exception during image generation: {e}")
             return None
 
+    def _build_cover_prompt(self, title: str, topic: str) -> str:
+        """为文章生成一个高质量封面图 prompt（小红书/公众号风格，900x383px）"""
+        # 调用 LLM 生成专业封面 prompt
+        try:
+            from openai import OpenAI
+            client = OpenAI()
+            system = """You are an expert at writing image generation prompts for WeChat article cover images.
+The cover must be visually striking, professional, and suitable for a Chinese tech/science article.
+Output ONLY the English image generation prompt, nothing else."""
+            user_msg = f"""Create a compelling cover image prompt for a WeChat article.
+Article title: {title}
+Topic: {topic}
+
+Requirements:
+- Aspect ratio: 900x383px (wide landscape banner)
+- Style: Modern, clean, visually stunning, suitable for a science/math article
+- Must convey the essence of the topic visually (NOT just text)
+- Use metaphors, abstract visualizations, or beautiful mathematical concepts
+- High contrast, vibrant colors, professional quality
+- NO text overlays in the image
+- Think: what visual metaphor best represents this topic?"""
+            response = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user_msg}
+                ]
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            logger.warning(f"Failed to generate cover prompt via LLM: {e}, using fallback")
+            return (
+                f"A stunning wide-format banner image representing '{topic}'. "
+                "Abstract mathematical visualization with vibrant colors, "
+                "elegant wave patterns, frequency spectrums, and geometric forms. "
+                "Modern scientific aesthetic, deep blue and purple gradient background, "
+                "glowing mathematical curves. Professional, visually striking, no text."
+            )
+
     def process(self, article_data: Dict[str, Any], visuals_dir: str) -> Dict[str, Any]:
         """
-        处理文章中的 [IMAGE: ...] 占位符：
-        1. 为每个占位符生成图片并保存到 visuals_dir
-        2. 将正文中的占位符替换为 Markdown 图片引用
-        3. 返回更新后的 article_data（body 已替换，visuals 字典包含文件名→bytes）
+        处理文章中的 [IMAGE: ...] 占位符，并专门生成封面图：
+        1. 专门生成高质量封面图（visual_0.png，900x383px 比例）
+        2. 为每个 [IMAGE: ...] 占位符生成章节配图（visual_1.png 起）
+        3. 将正文中的占位符替换为 Markdown 图片引用
 
         Args:
             article_data: WriterEditorAgent 的输出
@@ -272,37 +319,54 @@ class VisualistAgent:
         """
         body: str = article_data.get("body", "")
         image_prompts: List[str] = article_data.get("image_prompts", [])
+        title: str = article_data.get("title", "")
+        topic: str = article_data.get("topic", title)
         visuals: Dict[str, bytes] = {}
 
         os.makedirs(visuals_dir, exist_ok=True)
 
-        # 逐一替换 [IMAGE: ...] 占位符
-        placeholder_idx = 0
+        # ── 专门生成封面图（visual_0.png）──────────────────────────────
+        cover_filename = "visual_0.png"
+        cover_filepath = os.path.join(visuals_dir, cover_filename)
+        logger.info(f"Generating dedicated cover image for: {title}")
+        cover_prompt = self._build_cover_prompt(title, topic)
+        logger.info(f"Cover prompt: {cover_prompt[:100]}...")
+
+        # 封面图使用 aspectRatio 16:9（宽屏横幅，最接近公众号封面 900x383）
+        cover_bytes = self._generate_image(cover_prompt, aspect_ratio="16:9")
+        if cover_bytes:
+            with open(cover_filepath, "wb") as f:
+                f.write(cover_bytes)
+            visuals[cover_filename] = cover_bytes
+            logger.info(f"Cover image saved: {cover_filename} ({len(cover_bytes)} bytes)")
+        else:
+            logger.warning("Cover image generation failed, will use first article image as fallback")
+
+        # ── 逐一替换 [IMAGE: ...] 占位符（章节配图，从 visual_1 开始）───
+        article_img_idx = 1  # 封面图占用 visual_0
 
         def replace_placeholder(match: re.Match) -> str:
-            nonlocal placeholder_idx
+            nonlocal article_img_idx
             prompt = match.group(1).strip()
-            idx = placeholder_idx
-            placeholder_idx += 1
+            idx = article_img_idx
+            article_img_idx += 1
 
             filename = f"visual_{idx}.png"
             filepath = os.path.join(visuals_dir, filename)
             rel_path = f"./_visuals/{filename}"
 
-            logger.info(f"Generating image [{idx+1}/{len(image_prompts)}]: {prompt[:60]}...")
+            logger.info(f"Generating article image [{idx}]: {prompt[:60]}...")
             img_bytes = self._generate_image(prompt)
 
             if img_bytes:
                 with open(filepath, "wb") as f:
                     f.write(img_bytes)
                 visuals[filename] = img_bytes
-                logger.info(f"Saved image: {filename} ({len(img_bytes)} bytes)")
-                # 生成带说明的图片引用（从 prompt 中提取简短说明）
+                logger.info(f"Saved article image: {filename} ({len(img_bytes)} bytes)")
                 alt_text = prompt[:40] + "..." if len(prompt) > 40 else prompt
                 return f"\n\n![{alt_text}]({rel_path})\n\n"
             else:
-                # 生成失败：移除占位符，不留空洞
-                logger.warning(f"Image generation failed for placeholder {idx}, removing placeholder.")
+                logger.warning(f"Article image generation failed for placeholder {idx}, removing.")
                 return ""
 
         updated_body = re.sub(r'\[IMAGE:\s*(.*?)\]', replace_placeholder, body, flags=re.DOTALL)
