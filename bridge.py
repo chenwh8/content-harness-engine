@@ -193,22 +193,24 @@ def _convert_md_tables(body: str) -> str:
     支持标准的 | col1 | col2 | 格式，包含分隔行。
     """
     # 表格样式定义（微信只支持内联 style）
+    # 配色方案：深青灰表头 + 温暖白/淡灰斑马纹，亮色/深色背景均适合
     TABLE_STYLE = (
-        'border-collapse:collapse;width:100%;margin:16px 0;'
-        'font-size:14px;line-height:1.6;'
+        'border-collapse:collapse;width:100%;margin:20px 0;'
+        'font-size:14px;line-height:1.7;border-radius:8px;'
+        'overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);'
     )
     TH_STYLE = (
-        'background:#4a90e2;color:#fff;font-weight:600;'
-        'padding:10px 14px;border:1px solid #3a7bd5;'
-        'text-align:left;white-space:nowrap;'
+        'background:#2d3748;color:#e2e8f0;font-weight:600;'
+        'padding:12px 16px;border:none;'
+        'text-align:left;letter-spacing:0.03em;font-size:13px;'
     )
     TD_STYLE_ODD = (
-        'padding:9px 14px;border:1px solid #dde4ee;'
-        'color:#333;background:#f8f9fc;vertical-align:top;'
+        'padding:10px 16px;border:none;border-bottom:1px solid #edf2f7;'
+        'color:#2d3748;background:#ffffff;vertical-align:top;'
     )
     TD_STYLE_EVEN = (
-        'padding:9px 14px;border:1px solid #dde4ee;'
-        'color:#333;background:#ffffff;vertical-align:top;'
+        'padding:10px 16px;border:none;border-bottom:1px solid #edf2f7;'
+        'color:#2d3748;background:#f7fafc;vertical-align:top;'
     )
 
     def replace_table(m: re.Match) -> str:

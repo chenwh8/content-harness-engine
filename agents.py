@@ -158,7 +158,15 @@ class WriterEditorAgent:
 [IMAGE: <用英文描述这张图应该展示什么内容，要具体，例如：A diagram showing the duality between periodic time-domain signal and discrete frequency spectrum, with arrows indicating the Fourier series coefficients>]
 
 配图数量：全文 2-4 张，放在最需要视觉辅助的位置（不要堆在开头或结尾）。
-每张图的描述要具体、可视化，能直接作为 AI 生图的 Prompt。"""
+每张图的描述要具体、可视化，能直接作为 AI 生图的 Prompt。
+
+【表格配图规范】
+当你在文章中插入包含 3 行及以上数据的对比表格、映射关系表格或分类汇总表格时，
+必须在该表格之后紧跟一个专属的表格说明图占位符：
+[TABLE_IMAGE: <用英文描述一张能形象说明该表格内容的示意图，要求：可视化、直观、有助于读者理解表格中的规律和关系>]
+
+例如，时域/频域对偶关系表格后，应配：
+[TABLE_IMAGE: A 2x2 grid diagram showing the four duality relationships between time-domain and frequency-domain: continuous/aperiodic ↔ continuous/aperiodic, continuous/periodic ↔ discrete/aperiodic, discrete/aperiodic ↔ continuous/periodic, discrete/periodic ↔ discrete/periodic, with color-coded arrows showing the Fourier transform connections]"""
 
         writer_prompt = (
             f"主题: {topic}\n\n"
@@ -206,10 +214,10 @@ class WriterEditorAgent:
         except Exception:
             title = f"深度解析：{topic[:20]}"
 
-        # 提取 [IMAGE: ...] 占位符中的 prompts
-        image_placeholders = re.findall(r'\[IMAGE:\s*(.*?)\]', final_body, re.DOTALL)
+        # 提取所有占位符（[IMAGE: ...] 和 [TABLE_IMAGE: ...]）
+        image_placeholders = re.findall(r'\[(?:TABLE_)?IMAGE:\s*(.*?)\]', final_body, re.DOTALL)
         image_prompts = [p.strip() for p in image_placeholders]
-        logger.info(f"Found {len(image_prompts)} image placeholders in article")
+        logger.info(f"Found {len(image_prompts)} image placeholders (including table images) in article")
 
         return {
             "title": title,
@@ -369,7 +377,49 @@ Requirements:
                 logger.warning(f"Article image generation failed for placeholder {idx}, removing.")
                 return ""
 
+        # 先处理普通配图 [IMAGE: ...]
         updated_body = re.sub(r'\[IMAGE:\s*(.*?)\]', replace_placeholder, body, flags=re.DOTALL)
+
+        # ── 处理表格配图 [TABLE_IMAGE: ...]（使用 4:3 比例，适合示意图）────────
+        def replace_table_image(match: re.Match) -> str:
+            nonlocal article_img_idx
+            prompt = match.group(1).strip()
+            idx = article_img_idx
+            article_img_idx += 1
+
+            filename = f"visual_{idx}.png"
+            filepath = os.path.join(visuals_dir, filename)
+            rel_path = f"./_visuals/{filename}"
+
+            # 表格配图加强 prompt：先清除 LaTeX 公式（Imagen 不识别 LaTeX）
+            clean_prompt = re.sub(r'\$[^$]+\$', '', prompt)  # 删除 $...$ 行内公式
+            clean_prompt = re.sub(r'\\[a-zA-Z]+\{[^}]*\}', '', clean_prompt)  # 删除 \cmd{...}
+            clean_prompt = re.sub(r'\\[a-zA-Z]+', '', clean_prompt)  # 删除 \cmd
+            clean_prompt = re.sub(r'\s+', ' ', clean_prompt).strip()
+            enhanced_prompt = (
+                f"{clean_prompt}. "
+                "Style: clean educational diagram, white or light background, "
+                "clear labels, color-coded categories, professional infographic style, "
+                "suitable for a science article. High contrast, easy to read."
+            )
+
+            logger.info(f"Generating table illustration [{idx}]: {prompt[:60]}...")
+            img_bytes = self._generate_image(enhanced_prompt, aspect_ratio="4:3")
+
+            if img_bytes:
+                with open(filepath, "wb") as f:
+                    f.write(img_bytes)
+                visuals[filename] = img_bytes
+                logger.info(f"Saved table illustration: {filename} ({len(img_bytes)} bytes)")
+                return (
+                    f"\n\n<p style=\"text-align:center;color:#888;font-size:12px;margin-top:4px;\">\u56fe：{prompt[:30]}...</p>"
+                    f"\n\n![表格示意图]({rel_path})\n\n"
+                )
+            else:
+                logger.warning(f"Table image generation failed for placeholder {idx}, removing.")
+                return ""
+
+        updated_body = re.sub(r'\[TABLE_IMAGE:\s*(.*?)\]', replace_table_image, updated_body, flags=re.DOTALL)
 
         article_data["body"] = updated_body
         article_data["visuals"] = visuals
