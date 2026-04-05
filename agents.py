@@ -47,6 +47,7 @@ JSON 格式要求包含以下字段：
 - tone: 内容调性（如果用户没说，默认为"专业且易懂"）
 - platforms: 发布平台列表（如果用户没说，默认为["wechat"]）
 - status: 状态（默认为"draft"）
+- outline: 文章大纲（数组，至少 4 条；如果用户没说，请你根据主题生成一份可执行的大纲）
 - needs_more_info: 布尔值，如果信息不足以开始创作则为 true，否则为 false
 - message: 如果 needs_more_info 为 true，这里填写追问用户的话；否则为空字符串。"""
 
@@ -64,7 +65,8 @@ JSON 格式要求包含以下字段：
                 "audience": result.get("audience", "通用读者"),
                 "tone": result.get("tone", "专业且易懂"),
                 "platforms": result.get("platforms", ["wechat"]),
-                "status": result.get("status", "draft")
+                "status": result.get("status", "draft"),
+                "outline": result.get("outline", []),
             }
             return {"needs_more_info": False, "requirements": requirements}
 
@@ -77,7 +79,8 @@ JSON 格式要求包含以下字段：
                     "audience": "通用读者",
                     "tone": "专业且易懂",
                     "platforms": ["wechat"],
-                    "status": "draft"
+                    "status": "draft",
+                    "outline": [],
                 }
             }
 
@@ -705,6 +708,11 @@ Requirements:
         title: str = article_data.get("title", "")
         topic: str = article_data.get("topic", title)
         visuals: Dict[str, bytes] = {}
+        image_request_counts = {
+            "cover": 1,
+            "article": len(re.findall(r"\[IMAGE:\s*(.*?)\]", body, flags=re.DOTALL)),
+            "table": len(re.findall(r"\[TABLE_IMAGE:\s*(.*?)\]", body, flags=re.DOTALL)),
+        }
 
         os.makedirs(visuals_dir, exist_ok=True)
 
@@ -857,4 +865,17 @@ Requirements:
 
         article_data["body"] = updated_body
         article_data["visuals"] = visuals
+        article_data["visual_report"] = {
+            "requested": image_request_counts,
+            "kept": {
+                "cover": 1 if os.path.exists(os.path.join(visuals_dir, "visual_0.png")) else 0,
+                "article_or_table": max(len(visuals) - (1 if os.path.exists(os.path.join(visuals_dir, "visual_0.png")) else 0), 0),
+                "total": len(visuals),
+            },
+            "discarded": {
+                "total": max(sum(image_request_counts.values()) - len(visuals), 0),
+            },
+            "reuse_existing_visuals": reuse_existing_visuals,
+            "files": sorted(visuals.keys()),
+        }
         return article_data

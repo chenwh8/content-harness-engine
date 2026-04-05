@@ -34,6 +34,8 @@ The pipeline treats low scores as rejection and will discard the image instead o
 
 If a method is missing, `CapabilityRouter` will fall back to the next provider in the chain.
 
+When embedding this skill in OpenClaw, you can pass a callable under `PROGRESS_CALLBACK` to receive stage-by-stage progress events. Each event is a dictionary with `stage`, `message`, `details`, `state`, and `timestamp`. The final `handle_input` result also includes a `summary` object with the title, topic, outline, visual report, distribution status, and generated file paths.
+
 ## One-line installation prompt
 
 Use this exact sentence in OpenClaw to install the skill from GitHub:
