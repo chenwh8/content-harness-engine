@@ -6,11 +6,16 @@ bridge.py
 """
 import os
 import re
-import yaml
 import logging
 from typing import Dict, Any, List
 
+from capabilities import CapabilityRouter
 from wechat_poster import WeChatPoster
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - optional in minimal environments
+    yaml = None
 
 logger = logging.getLogger(__name__)
 
@@ -284,8 +289,52 @@ def _inline_md(text: str) -> str:
     return text
 
 
-def distribute_content(requirements: Dict[str, Any], main_md_path: str) -> Dict[str, Any]:
+def _parse_frontmatter(content: str) -> Dict[str, Any]:
+    if not content.startswith("---"):
+        return {}
+
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        return {}
+
+    raw_frontmatter = parts[1]
+    if yaml is not None:
+        try:
+            return yaml.safe_load(raw_frontmatter) or {}
+        except Exception as exc:
+            logger.error("YAML parse error: %s", exc)
+            return {}
+
+    parsed: Dict[str, Any] = {}
+    current_list_key = None
+    for line in raw_frontmatter.splitlines():
+        if not line.strip():
+            continue
+        if current_list_key and line.lstrip().startswith("-"):
+            value = line.lstrip()[1:].strip()
+            if value:
+                parsed.setdefault(current_list_key, []).append(value)
+            continue
+        current_list_key = None
+        match = re.match(r"^([A-Za-z0-9_]+):\s*(.*)$", line.strip())
+        if not match:
+            continue
+        key = match.group(1)
+        value = match.group(2).strip()
+        if not value:
+            parsed[key] = []
+            current_list_key = key
+            continue
+        if value.startswith("[") and value.endswith("]"):
+            parsed[key] = [item.strip().strip('"').strip("'") for item in value[1:-1].split(",") if item.strip()]
+        else:
+            parsed[key] = value.strip('"').strip("'")
+    return parsed
+
+
+def distribute_content(requirements: Dict[str, Any], main_md_path: str, capability_router: CapabilityRouter | None = None) -> Dict[str, Any]:
     """下游分发路由：读取 YAML platforms 字段，如果是 wechat 则调用 wechat_poster 插件。"""
+    router = capability_router or CapabilityRouter.from_env()
 
     # ── 解析 main.md 中的 YAML Frontmatter ──────────────────────────────
     with open(main_md_path, "r", encoding="utf-8") as f:
@@ -297,11 +346,8 @@ def distribute_content(requirements: Dict[str, Any], main_md_path: str) -> Dict[
     if content.startswith("---"):
         parts = content.split("---", 2)
         if len(parts) >= 3:
-            try:
-                frontmatter = yaml.safe_load(parts[1]) or {}
-                body_content = parts[2]
-            except yaml.YAMLError as e:
-                logger.error(f"YAML parse error: {e}")
+            frontmatter = _parse_frontmatter(content)
+            body_content = parts[2]
 
     platforms: List[str] = frontmatter.get("platforms", [])
     results = {}
@@ -327,7 +373,10 @@ def distribute_content(requirements: Dict[str, Any], main_md_path: str) -> Dict[
                         cover_image_path = os.path.join(visuals_dir, fname)
                         break
 
-        poster = WeChatPoster()
+        poster = WeChatPoster(
+            app_id=(router.config.get("WECHAT_APP_ID") if hasattr(router, "config") else None),
+            app_secret=(router.config.get("WECHAT_APP_SECRET") if hasattr(router, "config") else None),
+        )
 
         # 去掉播客脚本模块（微信正文不需要）
         wechat_body = re.split(r'\n##\s*播客/视频脚本', body_content)[0].strip()
@@ -340,11 +389,24 @@ def distribute_content(requirements: Dict[str, Any], main_md_path: str) -> Dict[
         html_content = _md_to_wechat_html(wechat_body, project_dir, poster)
 
         title = frontmatter.get("title", "未命名")
-        result = poster.post_to_draft(
-            poster._truncate_title(title),
-            html_content,
-            cover_image_path
-        )
+        native_publish = None
+        try:
+            native_publish = router.publish_wechat_draft(
+                poster._truncate_title(title),
+                html_content,
+                cover_image_path,
+            )
+        except Exception as exc:
+            logger.warning("Native publish route failed, falling back to WeChat API: %s", exc)
+
+        if native_publish:
+            result = native_publish
+        else:
+            result = poster.post_to_draft(
+                poster._truncate_title(title),
+                html_content,
+                cover_image_path
+            )
         results["wechat"] = result
         logger.info(f"WeChat draft result: {result}")
 

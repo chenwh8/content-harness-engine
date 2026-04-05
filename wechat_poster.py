@@ -1,17 +1,88 @@
 import os
 import logging
-import requests
 import json
 import re
+import mimetypes
+import uuid
 from typing import Dict, Any, List, Tuple
+
+try:
+    import requests
+except ImportError:  # pragma: no cover - optional dependency in minimal envs
+    requests = None
+
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 logger = logging.getLogger(__name__)
 
 class WeChatPoster:
-    def __init__(self):
-        self.app_id = os.environ.get("WECHAT_APP_ID")
-        self.app_secret = os.environ.get("WECHAT_APP_SECRET")
+    def __init__(
+        self,
+        app_id: str | None = None,
+        app_secret: str | None = None,
+        max_title_bytes: int | None = None,
+    ):
+        self.app_id = app_id or os.environ.get("WECHAT_APP_ID")
+        self.app_secret = app_secret or os.environ.get("WECHAT_APP_SECRET")
+        self.max_title_bytes = max_title_bytes or int(os.environ.get("WECHAT_TITLE_MAX_BYTES", "65"))
         self.access_token = None
+
+    def _http_get_json(self, url: str) -> Dict[str, Any]:
+        if requests is not None:
+            response = requests.get(url, timeout=30)
+            return response.json()
+
+        req = urllib_request.Request(url, method="GET")
+        try:
+            with urllib_request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read().decode("utf-8", errors="ignore"))
+        except urllib_error.HTTPError as exc:
+            return json.loads(exc.read().decode("utf-8", errors="ignore"))
+
+    def _http_post_json(self, url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = {"Content-Type": "application/json; charset=utf-8"}
+        if requests is not None:
+            response = requests.post(url, data=body, headers=headers, timeout=30)
+            return response.json()
+
+        req = urllib_request.Request(url, data=body, headers=headers, method="POST")
+        try:
+            with urllib_request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read().decode("utf-8", errors="ignore"))
+        except urllib_error.HTTPError as exc:
+            return json.loads(exc.read().decode("utf-8", errors="ignore"))
+
+    def _http_post_file(self, url: str, file_path: str, field_name: str = "media") -> Dict[str, Any]:
+        if requests is not None:
+            with open(file_path, "rb") as f:
+                files = {field_name: f}
+                response = requests.post(url, files=files, timeout=30)
+            return response.json()
+
+        boundary = uuid.uuid4().hex
+        filename = os.path.basename(file_path)
+        content_type = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
+
+        body = b"".join(
+            [
+                f"--{boundary}\r\n".encode(),
+                f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'.encode(),
+                f"Content-Type: {content_type}\r\n\r\n".encode(),
+                file_bytes,
+                f"\r\n--{boundary}--\r\n".encode(),
+            ]
+        )
+        headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
+        req = urllib_request.Request(url, data=body, headers=headers, method="POST")
+        try:
+            with urllib_request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read().decode("utf-8", errors="ignore"))
+        except urllib_error.HTTPError as exc:
+            return json.loads(exc.read().decode("utf-8", errors="ignore"))
 
     def _get_access_token(self) -> str:
         if self.access_token:
@@ -21,8 +92,7 @@ class WeChatPoster:
             raise ValueError("WECHAT_APP_ID or WECHAT_APP_SECRET is not set")
             
         url = f"https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid={self.app_id}&secret={self.app_secret}"
-        response = requests.get(url)
-        data = response.json()
+        data = self._http_get_json(url)
         
         if "access_token" in data:
             self.access_token = data["access_token"]
@@ -37,9 +107,7 @@ class WeChatPoster:
         
         with open(file_path, "rb") as f:
             files = {"media": f}
-            response = requests.post(url, files=files)
-            
-        data = response.json()
+            data = self._http_post_file(url, file_path)
         if "media_id" in data:
             return data["media_id"]
         else:
@@ -52,9 +120,7 @@ class WeChatPoster:
         
         with open(file_path, "rb") as f:
             files = {"media": f}
-            response = requests.post(url, files=files)
-            
-        data = response.json()
+            data = self._http_post_file(url, file_path)
         if "url" in data:
             return data["url"]
         else:
@@ -71,13 +137,13 @@ class WeChatPoster:
                 w += 1
         return w
 
-    def _truncate_title(self, title: str, max_bytes: int = 30) -> str:
+    def _truncate_title(self, title: str, max_bytes: int | None = None) -> str:
         """Truncate title to fit within WeChat's byte limit.
-        Empirically tested: WeChat enforces a strict 30-byte (UTF-8) limit
-        on draft article titles. CJK chars = 3 bytes each, ASCII = 1 byte.
-        The ellipsis character … (U+2026) is also 3 bytes in UTF-8.
-        So the safe strategy: truncate until body <= 27 bytes, then append ….
+        The default keeps more context for draft previews while still allowing
+        a configurable escape hatch via WECHAT_TITLE_MAX_BYTES.
         """
+        if max_bytes is None:
+            max_bytes = self.max_title_bytes
         encoded = title.encode('utf-8')
         if len(encoded) <= max_bytes:
             return title
@@ -101,11 +167,17 @@ class WeChatPoster:
                 logger.warning("No cover image provided or found. WeChat requires a cover image.")
                 return {"status": "error", "message": "Cover image is required for WeChat drafts."}
                 
-            # 2. Process content: replace local images with WeChat URLs
-            # Note: A simple implementation for markdown-like or HTML content
-            # In a real scenario, we'd convert markdown to HTML first.
-            import markdown
-            html_content = markdown.markdown(content)
+            # 2. Process content: accept HTML directly when bridge has already converted it.
+            # Fallback to Markdown conversion only if the input still looks like Markdown.
+            if content.lstrip().startswith("<"):
+                html_content = content
+            else:
+                try:
+                    import markdown
+                except ImportError:
+                    html_content = content
+                else:
+                    html_content = markdown.markdown(content)
             
             # Find local image references in HTML and upload them
             # This is a simplified regex, might need refinement
@@ -148,13 +220,7 @@ class WeChatPoster:
             # IMPORTANT: Use data= with ensure_ascii=False to prevent Unicode escape sequences
             # (e.g., \u6df1 instead of 深) in the title and content sent to WeChat API.
             # requests' json= parameter uses json.dumps with ensure_ascii=True by default.
-            response = requests.post(
-                url,
-                data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
-                headers={'Content-Type': 'application/json; charset=utf-8'}
-            )
-            response.encoding = 'utf-8'
-            data = response.json()
+            data = self._http_post_json(url, payload)
             
             if "media_id" in data:
                 logger.info(f"Successfully created WeChat draft: {data['media_id']}")
