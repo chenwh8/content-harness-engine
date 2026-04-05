@@ -125,6 +125,19 @@ GEMINI_TEXT_MODEL=gemini-2.5-flash
 
 OpenClaw 会先生成内容，再按配置决定是否继续推送草稿箱。
 
+如果你要在 OpenClaw 里更新这个 skill 包，可以直接说：
+
+```text
+请在当前 OpenClaw agent 工作区里的 `content-harness-engine` 仓库中执行更新，只拉取最新代码，不要重建目录，不要覆盖现有 `.env`，也不要改动我的公众号配置；更新完成后请告诉我当前版本和是否需要重启工作区。
+```
+
+这条更新指令的含义是：
+
+- 只更新仓库代码
+- 保留你当前的 `.env`
+- 保留公众号 `WECHAT_APP_ID` / `WECHAT_APP_SECRET`
+- 保留 `OUTPUT_DIR` 和其它本地配置
+
 如果你需要在 OpenClaw 里展示阶段性进度，建议把宿主的消息回调绑定到 `PROGRESS_CALLBACK`，这样可以收到像下面这样的阶段事件：
 
 - 主题与大纲已确认

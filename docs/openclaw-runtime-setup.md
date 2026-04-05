@@ -50,6 +50,20 @@ If you just want to validate that the install worked, you can trigger it with:
 帮我写一篇关于主流ai编程工具中多智能体应用的公众号文章
 ```
 
+To update an existing workspace safely without touching your local configuration, use:
+
+```text
+请在当前 OpenClaw agent 工作区里的 `content-harness-engine` 仓库中执行更新，只拉取最新代码，不要重建目录，不要覆盖现有 `.env`，也不要改动我的公众号配置；更新完成后请告诉我当前版本和是否需要重启工作区。
+```
+
+This update instruction is meant to preserve:
+
+- the repo-local `.env`
+- `WECHAT_APP_ID`
+- `WECHAT_APP_SECRET`
+- `OUTPUT_DIR`
+- any other local OpenClaw overrides
+
 ## Auto-detection order
 
 Without any explicit `OPENCLAW_RUNTIME`, the router checks:
