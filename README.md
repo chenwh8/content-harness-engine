@@ -79,23 +79,24 @@ OPENCLAW_RUNTIME=your_module:YourRuntime
 
 ### 3. 注册到 OpenClaw (龙虾)
 
-把下面这句直接发给 OpenClaw 即可完成安装：
+把下面这句直接发给 OpenClaw 即可完成安装。它会把 skill 安装到当前 agent 工作区目录里，并默认把 Obsidian 草稿放在同级目录下：
 
 ```text
-请从 GitHub 克隆 `chenwh8/content-harness-engine` 到本地，安装并启用这个内容生产 skill；如果本地已经存在仓库，请先更新到最新版本，不要重复克隆。安装后请读取仓库中的 README 和 OpenClaw 运行时说明，按文档配置必要环境变量并完成启用，优先使用宿主自身能力，必要时再回退到 API token。完成后告诉我如何触发这项能力。
+请在当前 OpenClaw agent 工作区目录下从 GitHub 克隆 `chenwh8/content-harness-engine` 到本地，安装并启用这个内容生产 skill；如果本地已经存在仓库，请先更新到最新版本，不要重复克隆。请把 Obsidian 草稿目录也放在这个 skill 安装目录的同级位置。安装后请读取仓库中的 README 和 OpenClaw 运行时说明，按文档配置必要环境变量并完成启用，优先使用宿主自身能力，必要时再回退到 API token。完成后告诉我如何触发这项能力。
 ```
 
 安装完成后，你需要自行检查并修改这些配置：
 
 - 仓库根目录的 `.env`
 - 如果你的 OpenClaw 运行环境不读取仓库 `.env`，就改 OpenClaw 服务本身的环境变量配置
+- 如果你希望 Obsidian 草稿和 skill 目录保持同级，建议把 `OUTPUT_DIR` 指向同级目录，例如 `../content-harness-output` 或绝对路径 `/path/to/agent-workspace/content-harness-output`
 
 其中公众号一条龙发文至少需要：
 
 ```env
 WECHAT_APP_ID=your_wechat_app_id_here
 WECHAT_APP_SECRET=your_wechat_app_secret_here
-OUTPUT_DIR=/path/to/your/obsidian/vault/content-harness-output
+OUTPUT_DIR=/path/to/agent-workspace/content-harness-output
 ```
 
 如果你还想启用外部 fallback，再补这些：

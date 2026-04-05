@@ -39,7 +39,7 @@ If a method is missing, `CapabilityRouter` will fall back to the next provider i
 Use this exact sentence in OpenClaw to install the skill from GitHub:
 
 ```text
-请从 GitHub 克隆 `chenwh8/content-harness-engine` 到本地，安装并启用这个内容生产 skill；如果本地已经存在仓库，请先更新到最新版本，不要重复克隆。安装后请读取仓库中的 README 和 OpenClaw 运行时说明，按文档配置必要环境变量并完成启用，优先使用宿主自身能力，必要时再回退到 API token。完成后告诉我如何触发这项能力。
+请在当前 OpenClaw agent 工作区目录下从 GitHub 克隆 `chenwh8/content-harness-engine` 到本地，安装并启用这个内容生产 skill；如果本地已经存在仓库，请先更新到最新版本，不要重复克隆。请把 Obsidian 草稿目录也放在这个 skill 安装目录的同级位置。安装后请读取仓库中的 README 和 OpenClaw 运行时说明，按文档配置必要环境变量并完成启用，优先使用宿主自身能力，必要时再回退到 API token。完成后告诉我如何触发这项能力。
 ```
 
 If you just want to validate that the install worked, you can trigger it with:
@@ -85,13 +85,16 @@ For a full publish flow, update these configuration locations:
 
 - the repository root `.env`
 - or the OpenClaw service environment if your deployment does not read the repo-local `.env`
+- the Obsidian output directory should live alongside the skill install directory, for example:
+  - `/path/to/agent-workspace/content-harness-engine`
+  - `/path/to/agent-workspace/content-harness-output`
 
 At minimum, the `.env` should include:
 
 ```env
 WECHAT_APP_ID=your_wechat_app_id
 WECHAT_APP_SECRET=your_wechat_app_secret
-OUTPUT_DIR=/path/to/your/output
+OUTPUT_DIR=/path/to/agent-workspace/content-harness-output
 ```
 
 ## Validation steps in Codex
