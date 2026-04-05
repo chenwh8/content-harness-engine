@@ -65,6 +65,7 @@ OUTPUT_DIR=/path/to/your/output
 ```
 
 Only `WECHAT_APP_ID` and `WECHAT_APP_SECRET` are required if you want the WeChat draft box step to run against the real platform.
+That means if you want a full one-stop publish flow from article generation to公众号草稿箱, you should provide both values in the environment.
 
 ## Validation steps in Codex
 

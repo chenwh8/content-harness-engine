@@ -46,8 +46,12 @@ cp .env.example .env
 NANO_BANANA_API_KEY=your_nano_banana_api_key_here
 GEMINI_IMAGE_MODEL_PRIORITY=imagen-4.0-fast-generate-001,imagen-4.0-generate-001,imagen-4.0-ultra-generate-001
 TAVILY_API_KEY=your_tavily_api_key_here
+WECHAT_APP_ID=your_wechat_app_id_here
+WECHAT_APP_SECRET=your_wechat_app_secret_here
 OUTPUT_DIR=/path/to/your/obsidian/vault/content-harness-output
 ```
+
+如果你希望把文章一条龙推送到公众号草稿箱，`WECHAT_APP_ID` 和 `WECHAT_APP_SECRET` 必填；如果只做本地生成和 Obsidian 输出，这两个可以先不配。
 
 默认情况下，系统会自动探测宿主是否已经注入了可用能力。模板里的占位值会被忽略。只有在自动探测失败，或者你想强制指定一个运行时时，才需要手工设置 `OPENCLAW_RUNTIME`：
 
@@ -68,6 +72,10 @@ OPENCLAW_RUNTIME=your_module:YourRuntime
 
 如果宿主能力不可用，系统会自动回退到 `GEMINI_API_KEY`、`OPENAI_API_KEY` 和本地模板兜底，不会直接中断整条流程。
 图像链路会优先使用宿主的多模态审图能力；若宿主未提供，则回退到 Gemini 视觉模型。若两者都不可用，图片会被直接丢弃，不会写入占位图。
+
+### 公众号草稿一条龙发布
+
+当 `WECHAT_APP_ID` 和 `WECHAT_APP_SECRET` 已配置且公众号接口白名单可用时，系统会在生成 `main.md` 和本地配图后，自动把文章推送到公众号草稿箱。封面图优先使用 `_visuals/visual_0.png`，没有合格封面时会直接跳过该图，而不是上传占位图。
 
 ### 3. 注册到 OpenClaw (龙虾)
 
