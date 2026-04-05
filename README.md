@@ -79,20 +79,49 @@ OPENCLAW_RUNTIME=your_module:YourRuntime
 
 ### 3. 注册到 OpenClaw (龙虾)
 
-在你的 OpenClaw 实例配置文件或注册表中，添加此 Skill：
+把下面这句直接发给 OpenClaw 即可完成安装：
 
-```python
-from content_harness_engine.orchestrator import Orchestrator
-
-# 初始化调度器
-config = {
-    "NANO_BANANA_API_KEY": "...",
-    "OUTPUT_DIR": "/path/to/obsidian"
-}
-harness_engine = Orchestrator(config)
-
-# 将 harness_engine.handle_input 绑定到 OpenClaw 的消息路由
+```text
+请从 GitHub 克隆 `chenwh8/content-harness-engine` 到本地，安装并启用这个内容生产 skill；如果本地已经存在仓库，请先更新到最新版本，不要重复克隆。安装后请读取仓库中的 README 和 OpenClaw 运行时说明，按文档配置必要环境变量并完成启用，优先使用宿主自身能力，必要时再回退到 API token。完成后告诉我如何触发这项能力。
 ```
+
+安装完成后，你需要自行检查并修改这些配置：
+
+- 仓库根目录的 `.env`
+- 如果你的 OpenClaw 运行环境不读取仓库 `.env`，就改 OpenClaw 服务本身的环境变量配置
+
+其中公众号一条龙发文至少需要：
+
+```env
+WECHAT_APP_ID=your_wechat_app_id_here
+WECHAT_APP_SECRET=your_wechat_app_secret_here
+OUTPUT_DIR=/path/to/your/obsidian/vault/content-harness-output
+```
+
+如果你还想启用外部 fallback，再补这些：
+
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+TAVILY_API_KEY=your_tavily_api_key_here
+GEMINI_IMAGE_MODEL_PRIORITY=imagen-4.0-fast-generate-001,imagen-4.0-generate-001,imagen-4.0-ultra-generate-001
+GEMINI_VISION_MODEL=gemini-2.5-flash
+GEMINI_TEXT_MODEL=gemini-2.5-flash
+```
+
+安装成功后，最直接的触发方式就是在 OpenClaw 里直接说：
+
+```text
+帮我写一篇关于主流ai编程工具中多智能体应用的公众号文章，并推送到公众号草稿箱
+```
+
+如果你只想先验证安装是否成功，也可以先说：
+
+```text
+帮我写一篇关于主流ai编程工具中多智能体应用的公众号文章
+```
+
+OpenClaw 会先生成内容，再按配置决定是否继续推送草稿箱。
 
 ## 🔗 飞书回调配置
 
