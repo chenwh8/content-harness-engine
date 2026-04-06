@@ -41,13 +41,27 @@ When embedding this skill in OpenClaw, you can pass a callable under `PROGRESS_C
 Use this exact sentence in OpenClaw to install the skill from GitHub:
 
 ```text
-请在当前 OpenClaw agent 工作区目录下从 GitHub 克隆 `chenwh8/content-harness-engine` 到本地，安装并启用这个内容生产 skill；如果本地已经存在仓库，请先更新到最新版本，不要重复克隆。请把 Obsidian 草稿目录也放在这个 skill 安装目录的同级位置。安装后请读取仓库中的 README 和 OpenClaw 运行时说明，按文档配置必要环境变量并完成启用，优先使用宿主自身能力，必要时再回退到 API token。完成后告诉我如何触发这项能力。
+请在当前 OpenClaw agent 工作区目录下从 GitHub 克隆 `chenwh8/content-harness-engine` 到本地，安装并启用这个内容生产 skill；如果本地已经存在仓库，请先更新到最新版本，不要重复克隆。请把 Obsidian 草稿目录也放在这个 skill 安装目录的同级位置。安装后请读取仓库中的 README 和 OpenClaw 运行时说明，按文档配置必要环境变量并完成启用，优先使用宿主自身能力，必要时再回退到 API token。首次收到写作需求时，只能先确认主题和文章大纲，不能直接开始检索、写作、配图或发布；必须等我明确回复“确认”之后，才能进入自动执行。完成后告诉我如何触发这项能力。
 ```
 
 If you just want to validate that the install worked, you can trigger it with:
 
 ```text
 帮我写一篇关于主流ai编程工具中多智能体应用的公众号文章
+```
+
+For the first turn, the skill must stop after requirement confirmation and wait for an explicit `确认` before it starts any research, writing, image generation, or publishing steps. A good confirmation reply looks like:
+
+```text
+我先整理出这篇文章的大纲，请你确认后再开工。
+主题：...
+受众：...
+调性：...
+大纲：
+- ...
+- ...
+
+回复“确认”开始自动写作；如果要改大纲，请直接说你的修改意见。
 ```
 
 To update an existing workspace safely without touching your local configuration, use:

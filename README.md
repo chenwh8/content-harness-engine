@@ -83,7 +83,7 @@ OPENCLAW_RUNTIME=your_module:YourRuntime
 把下面这句直接发给 OpenClaw 即可完成安装。它会把 skill 安装到当前 agent 工作区目录里，并默认把 Obsidian 草稿放在同级目录下：
 
 ```text
-请在当前 OpenClaw agent 工作区目录下从 GitHub 克隆 `chenwh8/content-harness-engine` 到本地，安装并启用这个内容生产 skill；如果本地已经存在仓库，请先更新到最新版本，不要重复克隆。请把 Obsidian 草稿目录也放在这个 skill 安装目录的同级位置。安装后请读取仓库中的 README 和 OpenClaw 运行时说明，按文档配置必要环境变量并完成启用，优先使用宿主自身能力，必要时再回退到 API token。完成后告诉我如何触发这项能力。
+请在当前 OpenClaw agent 工作区目录下从 GitHub 克隆 `chenwh8/content-harness-engine` 到本地，安装并启用这个内容生产 skill；如果本地已经存在仓库，请先更新到最新版本，不要重复克隆。请把 Obsidian 草稿目录也放在这个 skill 安装目录的同级位置。安装后请读取仓库中的 README 和 OpenClaw 运行时说明，按文档配置必要环境变量并完成启用，优先使用宿主自身能力，必要时再回退到 API token。首次收到写作需求时，只能先确认主题和文章大纲，不能直接开始检索、写作、配图或发布；必须等我明确回复“确认”之后，才能进入自动执行。完成后告诉我如何触发这项能力。
 ```
 
 安装完成后，你需要自行检查并修改这些配置：
@@ -124,6 +124,20 @@ GEMINI_TEXT_MODEL=gemini-2.5-flash
 ```
 
 OpenClaw 会先生成内容，再按配置决定是否继续推送草稿箱。
+
+首次触发时，建议 OpenClaw 先返回下面这种确认消息，然后等待用户回复“确认”：
+
+```text
+我先整理出这篇文章的大纲，请你确认后再开工。
+主题：...
+受众：...
+调性：...
+大纲：
+- ...
+- ...
+
+回复“确认”开始自动写作；如果要改大纲，请直接说你的修改意见。
+```
 
 如果你要在 OpenClaw 里更新这个 skill 包，可以直接说：
 
