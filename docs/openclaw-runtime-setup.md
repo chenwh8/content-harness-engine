@@ -64,6 +64,12 @@ For the first turn, the skill must stop after requirement confirmation and wait 
 回复“确认”开始自动写作；如果要改大纲，请直接说你的修改意见。
 ```
 
+After the user confirms the outline, the skill must run one web search pass before writing and must report the research sources back to the user. The research step should include at least:
+
+- the search query used
+- a short research summary
+- a source list with titles and URLs when available
+
 To update an existing workspace safely without touching your local configuration, use:
 
 ```text
@@ -133,6 +139,8 @@ Run these before testing in OpenClaw:
 
 ```bash
 python3 test_capability_router.py
+python3 test_architect_clarification.py
+python3 test_research_sources.py
 python3 test_writer_prompt.py
 python3 test_obsidian_formatter.py
 python3 -m py_compile agents.py bridge.py orchestrator.py capabilities.py obsidian_formatter.py

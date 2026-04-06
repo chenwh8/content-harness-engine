@@ -37,7 +37,10 @@ class Orchestrator:
         self.capabilities = CapabilityRouter.from_config(self.config)
         self.config["CAPABILITY_ROUTER"] = self.capabilities
         self.state = State.IDLE
-        self.context: Dict[str, Any] = {"progress_updates": []}
+        self.context: Dict[str, Any] = {
+            "progress_updates": [],
+            "clarification_log": [],
+        }
 
         # Initialize agents
         self.architect = ArchitectAgent(config)
@@ -77,6 +80,15 @@ class Orchestrator:
             except Exception as exc:
                 logger.warning("Progress callback failed: %s", exc)
         return event
+
+    def _record_clarification(self, message: str, user_input: Optional[str] = None) -> None:
+        self.context.setdefault("clarification_log", []).append(
+            {
+                "user_input": user_input,
+                "message": message,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
 
     def _normalize_outline(self, outline: Any) -> List[str]:
         if isinstance(outline, list):
@@ -152,6 +164,7 @@ class Orchestrator:
         output_files = self.context.get("output_files", {})
         distribution = self.context.get("distribution", {})
         visual_report = article.get("visual_report", {})
+        research = self.context.get("research_context", {})
         summary = {
             "topic": self.context.get("requirements", {}).get("topic"),
             "title": article.get("title"),
@@ -160,6 +173,12 @@ class Orchestrator:
             "files": output_files,
             "visual_report": visual_report,
             "distribution": distribution,
+            "research": {
+                "query": research.get("query") if isinstance(research, dict) else None,
+                "summary": research.get("summary") if isinstance(research, dict) else None,
+                "sources": research.get("sources") if isinstance(research, dict) else [],
+            },
+            "clarification_log": self.context.get("clarification_log", []),
             "quality": {
                 "visuals_kept": len(article.get("visuals", {}) or {}),
                 "visuals_requested": visual_report.get("requested", {}),
@@ -371,6 +390,8 @@ class Orchestrator:
                 if self.state == State.AWAITING_OUTLINE_CONFIRMATION:
                     decision = self._apply_outline_decision(user_input)
                     if decision.get("status") == "asking" or decision.get("needs_more_info"):
+                        if decision.get("message"):
+                            self._record_clarification(decision["message"], user_input)
                         return decision
                     user_input = None
                     continue
@@ -378,6 +399,8 @@ class Orchestrator:
                 if self.state == State.AWAITING_REUSE_DECISION:
                     decision = self._apply_reuse_decision(user_input)
                     if decision.get("needs_more_info") or decision.get("status") == "asking":
+                        if decision.get("message"):
+                            self._record_clarification(decision["message"], user_input)
                         return decision
                     user_input = None
                     continue
@@ -385,6 +408,8 @@ class Orchestrator:
                 if self.state == State.COLLECTING:
                     result = self.architect.process(user_input, self.context)
                     if result.get("needs_more_info"):
+                        if result.get("message"):
+                            self._record_clarification(result["message"], user_input)
                         return {"status": "asking", "message": result["message"]}
                     else:
                         requirements = self._normalize_requirements(result["requirements"])
@@ -395,7 +420,9 @@ class Orchestrator:
                             requirements["topic"] = normalized_topic
                         self.context["requirements"] = requirements
                         self.state = State.AWAITING_OUTLINE_CONFIRMATION
-                        return self._outline_confirmation_response()
+                        response = self._outline_confirmation_response()
+                        self._record_clarification(response.get("message", ""), user_input)
+                        return response
 
                 elif self.state == State.RESEARCHING:
                     self._maybe_progress(
@@ -408,7 +435,8 @@ class Orchestrator:
                     self._maybe_progress(
                         "research_complete",
                         "资料检索完成。",
-                        research_preview=str(research_data)[:200],
+                        research_preview=str(research_data.get("summary", ""))[:200] if isinstance(research_data, dict) else str(research_data)[:200],
+                        research_sources=len(research_data.get("sources", [])) if isinstance(research_data, dict) else 0,
                     )
                     self.state = State.WRITING
 

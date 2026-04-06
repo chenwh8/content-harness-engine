@@ -8,6 +8,7 @@
 - **Obsidian 资产化输出**：生成包含 YAML Frontmatter 的 Markdown 文档，自动下载并引用本地配图，预留播客/视频脚本模块。
 - **主题级草稿工作台**：每次按主题创建带时间戳的独立 Obsidian 项目；如果发现最近的同主题草稿，会先提示用户决定是否复用。
 - **确认-执行-总结工作流**：先确认核心主题和文章大纲，再自动执行全文、配图和发布；执行过程中可通过宿主回调汇报进度，结束后返回结构化总结。
+- **强制联网检索**：用户确认大纲后，必须先执行一次联网搜索并回报信息源摘要，然后才能进入写作。
 - **可配置生图优先级**：默认按 `imagen-4.0-fast-generate-001`、`imagen-4.0-generate-001`、`imagen-4.0-ultra-generate-001` 的顺序尝试，也可通过环境变量自定义列表。
 - **视觉质量门**：每张新图都会先通过多模态审核，未通过则自动切换到下一档模型重试；连续 3 次失败，或者根本没有审图能力时，直接舍弃该图。图像 prompt 默认偏向少文字、少标签、少数字的 editorial / icon-based 风格。
 - **智能搜索集成**：内置 Tavily API 支持，提供高质量的背景资料检索。
@@ -155,6 +156,7 @@ OpenClaw 会先生成内容，再按配置决定是否继续推送草稿箱。
 如果你需要在 OpenClaw 里展示阶段性进度，建议把宿主的消息回调绑定到 `PROGRESS_CALLBACK`，这样可以收到像下面这样的阶段事件：
 
 - 主题与大纲已确认
+- 联网检索完成，来源已回报
 - 资料检索完成
 - 正文初稿完成
 - 配图与质量检测完成
@@ -176,6 +178,8 @@ OpenClaw 会先生成内容，再按配置决定是否继续推送草稿箱。
 
 ```bash
 python3 test_capability_router.py
+python3 test_architect_clarification.py
+python3 test_research_sources.py
 python3 test_writer_prompt.py
 python3 test_obsidian_formatter.py
 python3 -m py_compile agents.py bridge.py orchestrator.py capabilities.py obsidian_formatter.py

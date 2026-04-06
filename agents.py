@@ -33,6 +33,93 @@ class ArchitectAgent:
         self.config = config
         self.capabilities = _get_router(config)
 
+    def _normalize_outline(self, outline: Any) -> List[str]:
+        if isinstance(outline, list):
+            items = [str(item).strip() for item in outline if str(item).strip()]
+        elif isinstance(outline, str):
+            items = [
+                re.sub(r"^\d+[.)\-\s]*", "", part).strip()
+                for part in re.split(r"[\n;，,]+", outline)
+            ]
+            items = [item for item in items if item]
+        else:
+            items = []
+        deduped = []
+        seen = set()
+        for item in items:
+            key = item.lower()
+            if key not in seen:
+                seen.add(key)
+                deduped.append(item)
+        return deduped
+
+    def _looks_generic(self, value: str) -> bool:
+        text = re.sub(r"\s+", "", str(value or "").strip())
+        return text in {"", "通用读者", "专业且易懂", "公众号", "文章", "深度文章", "深度技术文章"}
+
+    def _is_enough_to_start(self, requirements: Dict[str, Any], raw_input: str) -> bool:
+        topic = str(requirements.get("topic") or "").strip()
+        audience = str(requirements.get("audience") or "").strip()
+        angle = str(requirements.get("angle") or "").strip()
+        outline = self._normalize_outline(requirements.get("outline"))
+        if not topic:
+            return False
+        if self._looks_generic(audience) or self._looks_generic(angle):
+            return False
+        if len(outline) < 4:
+            return False
+
+        raw = str(raw_input or "")
+        clarifying_markers = ("面向", "针对", "给", "读者", "用户", "开发者", "管理者", "投资者", "学生")
+        angle_markers = ("角度", "重点", "侧重", "聚焦", "分析", "解读", "趋势", "影响", "原理", "案例")
+        if not any(marker in raw for marker in clarifying_markers):
+            return False
+        if not any(marker in raw for marker in angle_markers):
+            return False
+        return True
+
+    def _clarification_message(self, requirements: Dict[str, Any], missing: List[str]) -> str:
+        topic = requirements.get("topic", "未命名主题")
+        questions: List[str] = []
+        if "audience" in missing:
+            questions.append("这篇文章主要面向谁？比如一线开发者、产品经理、企业决策者。")
+        if "angle" in missing:
+            questions.append("你希望这篇文章从什么角度展开？比如趋势分析、实践指南、原理拆解、案例复盘。")
+        if "outline" in missing:
+            questions.append("如果你已经有大纲，可以直接给我 3 到 5 个小节；如果没有，我可以先帮你拟一个大纲。")
+        if not questions:
+            questions.append("你可以再补充一下受众、角度和大纲，这样我再开始写。")
+        bullet_lines = "\n".join(f"- {item}" for item in requirements.get("outline", []))
+        if bullet_lines:
+            bullet_lines = f"\n当前大纲草案：\n{bullet_lines}"
+        else:
+            bullet_lines = ""
+        return (
+            f"我先确认一下这篇文章的需求再开工。\n"
+            f"主题：{topic}{bullet_lines}\n\n"
+            + "\n".join(questions)
+        )
+
+    def _merge_context_requirements(self, context: Dict[str, Any], result: Dict[str, Any], user_input: str) -> Dict[str, Any]:
+        draft = dict(context.get("requirements_draft") or {})
+        merged = dict(draft)
+        for key in ("topic", "audience", "tone", "platforms", "status", "angle", "outline"):
+            value = result.get(key)
+            if value not in (None, "", []):
+                merged[key] = value
+        if not merged.get("topic"):
+            merged["topic"] = user_input[:200]
+        if not merged.get("audience"):
+            merged["audience"] = "通用读者"
+        if not merged.get("tone"):
+            merged["tone"] = "专业且易懂"
+        if not merged.get("platforms"):
+            merged["platforms"] = ["wechat"]
+        if not merged.get("status"):
+            merged["status"] = "draft"
+        merged["outline"] = self._normalize_outline(merged.get("outline"))
+        return merged
+
     def process(self, user_input: Optional[str], context: Dict[str, Any]) -> Dict[str, Any]:
         if not user_input:
             return {"needs_more_info": True, "message": "请输入您想创作的内容主题。"}
@@ -45,6 +132,7 @@ JSON 格式要求包含以下字段：
 - topic: 创作主题（必须，尽量完整保留用户的原始描述）
 - audience: 目标受众（如果用户没说，默认为"通用读者"）
 - tone: 内容调性（如果用户没说，默认为"专业且易懂"）
+- angle: 写作角度（如果用户没说，先根据主题给出一个明确角度）
 - platforms: 发布平台列表（如果用户没说，默认为["wechat"]）
 - status: 状态（默认为"draft"）
 - outline: 文章大纲（数组，至少 4 条；如果用户没说，请你根据主题生成一份可执行的大纲）
@@ -56,32 +144,55 @@ JSON 格式要求包含以下字段：
         try:
             response_text = self.capabilities.call_llm(prompt, system_prompt, response_format="json_object")
             result = json.loads(response_text)
+            merged = self._merge_context_requirements(context, result, user_input)
+            context["requirements_draft"] = merged
 
-            if result.get("needs_more_info"):
-                return {"needs_more_info": True, "message": result.get("message", "请提供更多信息。")}
+            missing = []
+            if not merged.get("topic"):
+                missing.append("topic")
+            if self._looks_generic(merged.get("audience", "")):
+                missing.append("audience")
+            if self._looks_generic(merged.get("angle", "")):
+                missing.append("angle")
+            if len(self._normalize_outline(merged.get("outline"))) < 4:
+                missing.append("outline")
 
-            requirements = {
-                "topic": result.get("topic", user_input[:200]),
-                "audience": result.get("audience", "通用读者"),
-                "tone": result.get("tone", "专业且易懂"),
-                "platforms": result.get("platforms", ["wechat"]),
-                "status": result.get("status", "draft"),
-                "outline": result.get("outline", []),
-            }
-            return {"needs_more_info": False, "requirements": requirements}
+            if missing or result.get("needs_more_info"):
+                return {
+                    "needs_more_info": True,
+                    "message": self._clarification_message(merged, missing),
+                    "requirements": merged,
+                }
+
+            if not self._is_enough_to_start(merged, user_input):
+                return {
+                    "needs_more_info": True,
+                    "message": self._clarification_message(merged, ["audience", "angle", "outline"]),
+                    "requirements": merged,
+                }
+
+            return {"needs_more_info": False, "requirements": merged}
 
         except Exception as e:
             logger.error(f"Architect parsing failed: {e}")
-            return {
-                "needs_more_info": False,
-                "requirements": {
+            draft = self._merge_context_requirements(
+                context,
+                {
                     "topic": user_input[:200],
                     "audience": "通用读者",
                     "tone": "专业且易懂",
                     "platforms": ["wechat"],
                     "status": "draft",
+                    "angle": "实践指南",
                     "outline": [],
-                }
+                },
+                user_input,
+            )
+            context["requirements_draft"] = draft
+            return {
+                "needs_more_info": True,
+                "message": self._clarification_message(draft, ["audience", "angle", "outline"]),
+                "requirements": draft,
             }
 
 
@@ -94,10 +205,57 @@ class ResearcherAgent:
         self.config = config
         self.capabilities = _get_router(config)
 
-    def process(self, requirements: Dict[str, Any]) -> str:
+    def _extract_sources(self, research_text: str, max_sources: int = 5) -> List[Dict[str, str]]:
+        sources: List[Dict[str, str]] = []
+        seen = set()
+        lines = [line.strip() for line in str(research_text or "").splitlines()]
+        for idx, line in enumerate(lines):
+            if "http://" in line or "https://" in line:
+                url_match = re.search(r"https?://\S+", line)
+                if not url_match:
+                    continue
+                url = url_match.group(0).rstrip(").,，。]")
+                if url in seen:
+                    continue
+                seen.add(url)
+                title = line[:120].replace("来源:", "").replace("来源：", "").strip()
+                snippet = ""
+                for look_ahead in range(idx + 1, min(idx + 3, len(lines))):
+                    if lines[look_ahead]:
+                        snippet = lines[look_ahead][:220]
+                        break
+                sources.append({"title": title or url, "url": url, "snippet": snippet})
+            if len(sources) >= max_sources:
+                break
+        return sources
+
+    def process(self, requirements: Dict[str, Any]) -> Dict[str, Any]:
         topic = requirements.get("topic", "")
         logger.info(f"Researching topic: {topic[:80]}")
-        return self.capabilities.search(topic, max_results=3)
+        query = topic
+        search_text = self.capabilities.search(query, max_results=5)
+        sources = self._extract_sources(search_text)
+        summary_prompt = (
+            f"主题：{topic}\n\n"
+            f"搜索结果：\n{search_text}\n\n"
+            "请把上面的资料整理成一段面向一线开发者的可引用研究摘要，"
+            "要求简洁、准确、只输出摘要正文，不要列点，不要添加标题。"
+        )
+        try:
+            summary = self.capabilities.call_llm(
+                summary_prompt,
+                "你是一个严谨的研究助理，负责把搜索结果压缩成可写作的摘要。",
+                model="gpt-4.1-mini",
+            ).strip()
+        except Exception as exc:
+            logger.warning("Research summary generation failed: %s", exc)
+            summary = search_text[:1200]
+        return {
+            "query": query,
+            "summary": summary,
+            "sources": sources,
+            "raw": search_text,
+        }
 
 
 # ----------------------------------------------------------------------
@@ -385,10 +543,23 @@ class WriterEditorAgent:
             current = current[:-1]
         return current.strip("：:，。,.!！?？")
 
-    def process(self, requirements: Dict[str, Any], research_context: str) -> Dict[str, Any]:
+    def process(self, requirements: Dict[str, Any], research_context: Any) -> Dict[str, Any]:
         topic = requirements.get("topic", "未命名主题")
         tone = requirements.get("tone", "专业且易懂")
         audience = requirements.get("audience", "通用读者")
+        if isinstance(research_context, dict):
+            sources_block = "\n".join(
+                f"- {source.get('title', '未命名来源')} | {source.get('url', '')}\n  {source.get('snippet', '')}"
+                for source in research_context.get("sources", [])
+            )
+            research_context_text = (
+                f"研究主题：{research_context.get('query', topic)}\n"
+                f"研究摘要：{research_context.get('summary', '')}\n"
+                f"来源列表：\n{sources_block}\n"
+                f"原始搜索结果：\n{research_context.get('raw', '')}"
+            )
+        else:
+            research_context_text = str(research_context)
 
         # ── Writer ──────────────────────────────────────────────────────
         writer_system = self._build_writer_system_prompt(topic, tone, audience)
@@ -396,7 +567,7 @@ class WriterEditorAgent:
         writer_prompt = (
             f"主题: {topic}\n\n"
             f"用户的具体要求：\n{topic}\n\n"
-            f"研究资料（供参考，不要直接复制）：\n{research_context}"
+            f"研究资料（供参考，不要直接复制）：\n{research_context_text}"
         )
 
         logger.info("Writer is generating content...")
