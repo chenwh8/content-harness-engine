@@ -349,6 +349,13 @@ def distribute_content(requirements: Dict[str, Any], main_md_path: str, capabili
             frontmatter = _parse_frontmatter(content)
             body_content = parts[2]
 
+    # 先把 LaTeX 公式渲染成图片，避免公众号把 $$...$$ 原样当成文本显示
+    try:
+        from latex_renderer import render_latex_in_markdown
+        body_content = render_latex_in_markdown(body_content, os.path.join(os.path.dirname(main_md_path), "_visuals"))
+    except Exception as exc:
+        logger.warning("LaTeX render step failed, continuing with original markdown: %s", exc)
+
     platforms: List[str] = frontmatter.get("platforms", [])
     results = {}
 
