@@ -50,6 +50,21 @@ If you just want to validate that the install worked, you can trigger it with:
 帮我写一篇关于主流ai编程工具中多智能体应用的公众号文章
 ```
 
+If you are using `opencode`, keep the same install/update split:
+
+- **Install** means cloning the repository into the current workspace and initializing the environment.
+- **Update** means pulling the latest code only, without recreating the directory, overwriting `.env`, or changing公众号 configuration.
+
+Copyable prompts:
+
+```text
+请在当前 opencode 工作区目录下从 GitHub 克隆 `chenwh8/content-harness-engine` 到本地，安装并启用这个内容生产 skill；如果本地已经存在仓库，请先更新到最新版本，不要重复克隆。请把 Obsidian 草稿目录也放在这个 skill 安装目录的同级位置。安装后请读取仓库中的 README 和运行时说明，按文档配置必要环境变量并完成启用。首次收到写作需求时，只能先确认主题和文章大纲，不能直接开始检索、写作、配图或发布；必须等我明确回复“确认”之后，才能进入自动执行。
+```
+
+```text
+请在当前 opencode 工作区里的 `content-harness-engine` 仓库中执行更新，只拉取最新代码，不要重建目录，不要覆盖现有 `.env`，也不要改动我的公众号配置；更新完成后请告诉我当前版本和是否需要重启工作区。
+```
+
 For the first turn, the skill must stop after requirement confirmation and wait for an explicit `确认` before it starts any research, writing, image generation, or publishing steps. A good confirmation reply looks like:
 
 ```text
@@ -83,6 +98,20 @@ This update instruction is meant to preserve:
 - `WECHAT_APP_SECRET`
 - `OUTPUT_DIR`
 - any other local OpenClaw overrides
+
+If you trigger the skill from `opencode`, the first response should stay in confirmation mode until the user explicitly approves the topic and outline. A good first-turn response is:
+
+```text
+我先确认一下需求再开工。
+主题：...
+受众：...
+角度：...
+大纲：
+- ...
+- ...
+
+你确认后，我会先做一次联网检索并回报来源，然后再自动写作、配图和推送草稿箱。
+```
 
 ## Auto-detection order
 
